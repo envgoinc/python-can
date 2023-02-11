@@ -18,11 +18,21 @@ from can.message import Message
 
 LOG = logging.getLogger(__name__)
 
+class BusError(Enum):
+    """The type of errors that can happen on a bus."""
+    ACKNOWLEDGE = auto()
+    BIT = auto()
+    CRC = auto()
+    FORM = auto()
+    OVERFLOW = auto()
+    STUFF = auto()
+
 
 class BusState(Enum):
     """The state in which a :class:`can.BusABC` can be."""
 
     ACTIVE = auto()
+    WARN = auto()
     PASSIVE = auto()
     ERROR = auto()
 
@@ -73,6 +83,9 @@ class BusABC(metaclass=ABCMeta):
         """
         self._periodic_tasks: List[_SelfRemovingCyclicTask] = []
         self.set_filters(can_filters)
+        self._error_count = 0
+        self._bus_error = None
+        self._state = BusState.ACTIVE
 
     def __str__(self) -> str:
         return self.channel_info
@@ -415,6 +428,19 @@ class BusABC(metaclass=ABCMeta):
     def flush_tx_buffer(self) -> None:
         """Discard every message that may be queued in the output buffer(s)."""
 
+    def bus_error_encountered(self, error: BusError) -> None:
+        self._bus_error = error
+        self._error_count += 1
+
+    def bus_error_check(self) -> Tuple[int, BusError]:
+        error = self._bus_error
+        if(self._bus_error) is not None:
+            self._bus_error = None
+        return (self._error_count, error)
+
+    def bus_error_clear(self) -> None:
+        self._error_count = 0
+
     def shutdown(self) -> None:
         """
         Called to carry out any interface specific cleanup required
@@ -433,14 +459,14 @@ class BusABC(metaclass=ABCMeta):
         """
         Return the current state of the hardware
         """
-        return BusState.ACTIVE
+        return self._state
 
     @state.setter
     def state(self, new_state: BusState) -> None:
         """
         Set the new state of the hardware
         """
-        raise NotImplementedError("Property is not implemented.")
+        self._state = new_state
 
     @staticmethod
     def _detect_available_configs() -> List[can.typechecking.AutoDetectedConfig]:

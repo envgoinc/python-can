@@ -193,7 +193,7 @@ def main() -> None:
         action="store_true",
     )
     state_group.add_argument(
-        "--passive", help="Start the bus as passive.", action="store_true"
+        "--listen-only", help="Start bus in listen only mode.", action="store_true"
     )
 
     # print help message when no arguments were given
@@ -204,11 +204,6 @@ def main() -> None:
     results, unknown_args = parser.parse_known_args()
     additional_config = _parse_additional_config([*results.extra_args, *unknown_args])
     bus = _create_bus(results, can_filters=_parse_filters(results), **additional_config)
-
-    if results.active:
-        bus.state = BusState.ACTIVE
-    elif results.passive:
-        bus.state = BusState.PASSIVE
 
     print(f"Connected to {bus.__class__.__name__}: {bus.channel_info}")
     print(f"Can Logger (Started on {datetime.now()})")
@@ -229,13 +224,29 @@ def main() -> None:
         )
 
     try:
+        total_messages = 0
+        bus.bus_error_clear()
+        bus_state = bus.state
+        print(f"Bus State: {bus_state}")
         while True:
+            if bus_state != bus.state:
+                print(f"*********Bus State Changed: {bus_state}**************")
+            num_errors, error = bus.bus_error_check()
+            if error is not None:
+                print(f"*********Bus Error: {error}***************")
             msg = bus.recv(1)
             if msg is not None:
                 logger(msg)
+                total_messages += 1
     except KeyboardInterrupt:
         pass
     finally:
+        num_errors, error = bus.bus_error_check()
+        if total_messages == 0:
+            error_percentage = 0
+        else:
+            error_percentage = num_errors * 100 / total_messages
+        print(f"Total messages: {total_messages}, Total errors: {num_errors} ({error_percentage}%)")
         bus.shutdown()
         logger.stop()
 

@@ -8,7 +8,7 @@ import io
 import time
 import logging
 
-from can import BusABC, Message
+from can import BusABC, Message, BusError, BusState
 from ..exceptions import (
     CanInterfaceNotImplementedError,
     CanInitializationError,
@@ -200,6 +200,8 @@ class slcanBus(BusABC):
         data = None
 
         string = self._read(timeout)
+        if string is not None:
+            print(string)
 
         if not string:
             pass
@@ -225,6 +227,33 @@ class slcanBus(BusABC):
             dlc = int(string[9])
             extended = True
             remote = True
+        # bus state information
+        elif string[0] == "s":
+            if string[1] == "a":
+                bus_state = BusState.ACTIVE
+            elif string[1] == "p":
+                bus_state = BusState.PASSIVE
+            elif string[1] == "w":
+                bus_state = BusState.WARN
+            elif string[1] == "f":
+                bus_state = BusState.ERROR
+            #receive_error_count = int(string[2:4])
+            #transmit_error_count = int(string[5:7])
+            self.state = bus_state
+        # errors on the bus
+        elif string[0] == "e":
+            len = int(string[1])
+            for idx in range(2, 2+len):
+                if string[idx] == "o":
+                    self.bus_error_encountered(BusError.OVERFLOW)
+                elif string[idx] == "s":
+                    self.bus_error_encountered(BusError.STUFF)
+                elif string[idx] == "a":
+                    self.bus_error_encountered(BusError.ACKNOWLEDGE)
+                elif string[idx] == "c":
+                    self.bus_error_encountered(BusError.CRC)
+                elif string[idx] == "f":
+                    self.bus_error_encountered(BusError.FORM)
 
         if canId is not None:
             msg = Message(
