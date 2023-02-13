@@ -200,72 +200,75 @@ class slcanBus(BusABC):
         data = None
 
         string = self._read(timeout)
-        if string is not None:
+
+        try:
+            if not string:
+                pass
+            elif string[0] == "T":
+                # extended frame
+                canId = int(string[1:9], 16)
+                dlc = int(string[9])
+                extended = True
+                data = bytearray.fromhex(string[10 : 10 + dlc * 2])
+            elif string[0] == "t":
+                # normal frame
+                canId = int(string[1:4], 16)
+                dlc = int(string[4])
+                data = bytearray.fromhex(string[5 : 5 + dlc * 2])
+            elif string[0] == "r":
+                # remote frame
+                canId = int(string[1:4], 16)
+                dlc = int(string[4])
+                remote = True
+            elif string[0] == "R":
+                # remote extended frame
+                canId = int(string[1:9], 16)
+                dlc = int(string[9])
+                extended = True
+                remote = True
+            # bus state information
+            elif string[0] == "s":
+                if string[1] == "a":
+                    bus_state = BusState.ACTIVE
+                elif string[1] == "p":
+                    bus_state = BusState.PASSIVE
+                elif string[1] == "w":
+                    bus_state = BusState.WARN
+                elif string[1] == "f":
+                    bus_state = BusState.ERROR
+                #receive_error_count = int(string[2:4])
+                #transmit_error_count = int(string[5:7])
+                self.state = bus_state
+            # errors on the bus
+            elif string[0] == "e":
+                len = int(string[1])
+                for idx in range(2, 2+len):
+                    if string[idx] == "o":
+                        self.bus_error_encountered(BusError.OVERFLOW)
+                    elif string[idx] == "s":
+                        self.bus_error_encountered(BusError.STUFF)
+                    elif string[idx] == "a":
+                        self.bus_error_encountered(BusError.ACKNOWLEDGE)
+                    elif string[idx] == "c":
+                        self.bus_error_encountered(BusError.CRC)
+                    elif string[idx] == "f":
+                        self.bus_error_encountered(BusError.FORM)
+
+            if canId is not None:
+                msg = Message(
+                    arbitration_id=canId,
+                    is_extended_id=extended,
+                    timestamp=time.time(),  # Better than nothing...
+                    is_remote_frame=remote,
+                    dlc=dlc,
+                    data=data,
+                )
+                return msg, False
+            return None, False
+        except:
             print(string)
+            return None, False
 
-        if not string:
-            pass
-        elif string[0] == "T":
-            # extended frame
-            canId = int(string[1:9], 16)
-            dlc = int(string[9])
-            extended = True
-            data = bytearray.fromhex(string[10 : 10 + dlc * 2])
-        elif string[0] == "t":
-            # normal frame
-            canId = int(string[1:4], 16)
-            dlc = int(string[4])
-            data = bytearray.fromhex(string[5 : 5 + dlc * 2])
-        elif string[0] == "r":
-            # remote frame
-            canId = int(string[1:4], 16)
-            dlc = int(string[4])
-            remote = True
-        elif string[0] == "R":
-            # remote extended frame
-            canId = int(string[1:9], 16)
-            dlc = int(string[9])
-            extended = True
-            remote = True
-        # bus state information
-        elif string[0] == "s":
-            if string[1] == "a":
-                bus_state = BusState.ACTIVE
-            elif string[1] == "p":
-                bus_state = BusState.PASSIVE
-            elif string[1] == "w":
-                bus_state = BusState.WARN
-            elif string[1] == "f":
-                bus_state = BusState.ERROR
-            #receive_error_count = int(string[2:4])
-            #transmit_error_count = int(string[5:7])
-            self.state = bus_state
-        # errors on the bus
-        elif string[0] == "e":
-            len = int(string[1])
-            for idx in range(2, 2+len):
-                if string[idx] == "o":
-                    self.bus_error_encountered(BusError.OVERFLOW)
-                elif string[idx] == "s":
-                    self.bus_error_encountered(BusError.STUFF)
-                elif string[idx] == "a":
-                    self.bus_error_encountered(BusError.ACKNOWLEDGE)
-                elif string[idx] == "c":
-                    self.bus_error_encountered(BusError.CRC)
-                elif string[idx] == "f":
-                    self.bus_error_encountered(BusError.FORM)
-
-        if canId is not None:
-            msg = Message(
-                arbitration_id=canId,
-                is_extended_id=extended,
-                timestamp=time.time(),  # Better than nothing...
-                is_remote_frame=remote,
-                dlc=dlc,
-                data=data,
-            )
-            return msg, False
-        return None, False
 
     def send(self, msg: Message, timeout: Optional[float] = None) -> None:
         if timeout != self.serialPortOrig.write_timeout:

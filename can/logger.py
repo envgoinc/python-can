@@ -246,7 +246,7 @@ def main() -> None:
             error_percentage = 0
         else:
             error_percentage = num_errors * 100 / total_messages
-        print(f"Total messages: {total_messages}, Total errors: {num_errors} ({error_percentage}%)")
+        print(f"Total messages: {total_messages}, Total errors: {num_errors} ({error_percentage:.2f}%)")
         bus.shutdown()
         logger.stop()
 
