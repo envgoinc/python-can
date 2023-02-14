@@ -7,6 +7,7 @@ from typing import Any, Optional, Tuple
 import io
 import time
 import logging
+import traceback
 
 from can import BusABC, Message, BusError, BusState
 from ..exceptions import (
@@ -119,6 +120,8 @@ class slcanBus(BusABC):
                 self.set_bitrate_reg(btr)
             self.open()
 
+        self._bitrate = bitrate
+
         super().__init__(
             channel, ttyBaudrate=115200, bitrate=None, rtscts=False, **kwargs
         )
@@ -198,6 +201,7 @@ class slcanBus(BusABC):
         remote = False
         extended = False
         data = None
+        isError = False
 
         string = self._read(timeout)
 
@@ -229,30 +233,37 @@ class slcanBus(BusABC):
             # bus state information
             elif string[0] == "s":
                 if string[1] == "a":
-                    bus_state = BusState.ACTIVE
+                    busState = BusState.ACTIVE
                 elif string[1] == "p":
-                    bus_state = BusState.PASSIVE
+                    busState = BusState.PASSIVE
                 elif string[1] == "w":
-                    bus_state = BusState.WARN
+                    busState = BusState.WARN
                 elif string[1] == "f":
-                    bus_state = BusState.ERROR
+                    busState = BusState.ERROR
                 #receive_error_count = int(string[2:4])
                 #transmit_error_count = int(string[5:7])
-                self.state = bus_state
+                self.state = busState
             # errors on the bus
             elif string[0] == "e":
+                isError = True;
+                dlc = 0
                 len = int(string[1])
                 for idx in range(2, 2+len):
                     if string[idx] == "o":
                         self.bus_error_encountered(BusError.OVERFLOW)
+                        canId = 2
                     elif string[idx] == "s":
                         self.bus_error_encountered(BusError.STUFF)
+                        canId = 3
                     elif string[idx] == "a":
                         self.bus_error_encountered(BusError.ACKNOWLEDGE)
+                        canId = 4
                     elif string[idx] == "c":
                         self.bus_error_encountered(BusError.CRC)
+                        canId = 5
                     elif string[idx] == "f":
                         self.bus_error_encountered(BusError.FORM)
+                        canId = 6
 
             if canId is not None:
                 msg = Message(
@@ -262,11 +273,13 @@ class slcanBus(BusABC):
                     is_remote_frame=remote,
                     dlc=dlc,
                     data=data,
+                    is_error_frame = isError,
                 )
                 return msg, False
             return None, False
-        except:
+        except Exception:
             print(string)
+            traceback.print_exc()
             return None, False
 
 

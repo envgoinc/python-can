@@ -10,6 +10,7 @@ from typing import Optional
 
 from . import typechecking
 
+from datetime import datetime
 from copy import deepcopy
 from math import isinf, isnan
 
@@ -109,7 +110,9 @@ class Message:  # pylint: disable=too-many-instance-attributes; OK for a datacla
             self._check()
 
     def __str__(self) -> str:
-        field_strings = [f"Timestamp: {self.timestamp:>15.6f}"]
+        date_time = datetime.fromtimestamp(self.timestamp)
+        date_time_string = date_time.strftime("%H:%M:%S.%f")
+        field_strings = [f"Timestamp: {date_time_string}"]
         if self.is_extended_id:
             arbitration_id_string = f"ID: {self.arbitration_id:08x}"
         else:

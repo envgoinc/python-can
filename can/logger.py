@@ -225,19 +225,24 @@ def main() -> None:
 
     try:
         total_messages = 0
+        total_data = 0
+        start_time = None
         bus.bus_error_clear()
         bus_state = bus.state
         print(f"Bus State: {bus_state}")
         while True:
             if bus_state != bus.state:
                 print(f"*********Bus State Changed: {bus_state}**************")
-            num_errors, error = bus.bus_error_check()
-            if error is not None:
-                print(f"*********Bus Error: {error}***************")
+                bus_state = bus.state
             msg = bus.recv(1)
             if msg is not None:
                 logger(msg)
-                total_messages += 1
+                if not msg.is_error_frame:
+                    total_messages += 1
+                    total_data += 6 + msg.dlc
+                    end_time = msg.timestamp
+                    if start_time is None:
+                        start_time = msg.timestamp
     except KeyboardInterrupt:
         pass
     finally:
@@ -246,7 +251,9 @@ def main() -> None:
             error_percentage = 0
         else:
             error_percentage = num_errors * 100 / total_messages
+        bus_utilization_percentage = total_data * 100 / (bus._bitrate / 8 * (end_time - start_time))
         print(f"Total messages: {total_messages}, Total errors: {num_errors} ({error_percentage:.2f}%)")
+        print(f"Bus usage = {bus_utilization_percentage:.2f}%")
         bus.shutdown()
         logger.stop()
 
