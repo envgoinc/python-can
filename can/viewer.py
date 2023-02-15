@@ -547,18 +547,24 @@ def parse_args(args: List[str]) -> Tuple:
 
 
 def main() -> None:
-    parsed_args, can_filters, data_structs, additional_config = parse_args(sys.argv[1:])
+    try:
+        parsed_args, can_filters, data_structs, additional_config = parse_args(sys.argv[1:])
 
-    if can_filters:
-        additional_config.update({"can_filters": can_filters})
-    bus = _create_bus(parsed_args, **additional_config)
+        if can_filters:
+            additional_config.update({"can_filters": can_filters})
+        bus = _create_bus(parsed_args, **additional_config)
 
-    curses.wrapper(CanViewer, bus, data_structs)
+        curses.wrapper(CanViewer, bus, data_structs)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        num_errors, error = bus.bus_error_check()
+        bus_utilization_percentage = bus.total_data * 100 / (bus._bitrate / 8 * bus.get_uptime())
+        print(f"Total messages: {bus.total_messages}, Total errors: {num_errors} ({bus.get_error_percentage():.2f}%)")
+        print(f"Bus usage = {bus_utilization_percentage:.2f}%")
+        bus.shutdown()
+
 
 
 if __name__ == "__main__":
-    # Catch ctrl+c
-    try:
-        main()
-    except KeyboardInterrupt:
-        pass
+    main()
