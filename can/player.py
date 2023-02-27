@@ -6,6 +6,7 @@ Similar to canplayer in the can-utils package.
 """
 
 import sys
+import time
 import argparse
 from datetime import datetime
 import errno
@@ -52,6 +53,13 @@ def main() -> None:
     )
 
     parser.add_argument(
+        "--loopback-test",
+        dest="test",
+        help="Also receive messages and check that what was sent is received.",
+        action="store_true",
+    )
+
+    parser.add_argument(
         "-g",
         "--gap",
         type=float,
@@ -84,6 +92,7 @@ def main() -> None:
     verbosity = results.verbosity
 
     error_frames = results.error_frames
+    test = results.test
 
     with _create_bus(results, **additional_config) as bus:
         with LogReader(results.infile, **additional_config) as reader:
@@ -98,14 +107,36 @@ def main() -> None:
             print(f"Can LogReader (Started on {datetime.now()})")
 
             try:
+                errors = 0
                 for message in in_sync:
                     if message.is_error_frame and not error_frames:
                         continue
                     if verbosity >= 3:
                         print(message)
                     bus.send(message)
+                    if(test):
+                        recv_msg = bus.recv()
+                        if not((recv_msg.arbitration_id == message.arbitration_id) and
+                           (recv_msg.data == message.data)):
+                            print("Messages don't match.")
+                            print(f"sent:    {message}")
+                            print(f"received:{recv_msg}")
+                            errors += 1
+                    time.sleep(0.100)
+
             except KeyboardInterrupt:
                 pass
+            finally:
+                if bus.total_messages != 0:
+                    error_pct = errors/bus.total_messages * 100
+                else:
+                    error_pct = 0
+                if bus.get_uptime() != 0:
+                    bus_utilization_percentage = bus.total_data * 100 / (bus._bitrate / 8 * bus.get_uptime())
+                else:
+                    bus_utilization_percentage = 0
+                print(f"Error rate: {error_pct}, total messages: {bus.total_messages}")
+                print(f"Bus usage = {bus_utilization_percentage:.2f}%")
 
 
 if __name__ == "__main__":

@@ -297,6 +297,11 @@ class slcanBus(BusABC):
             else:
                 sendStr = f"t{msg.arbitration_id:03X}{msg.dlc:d}"
             sendStr += msg.data.hex().upper()
+            self._total_messages += 1
+            self._total_data += 6 + msg.dlc
+            self._end_time = time.time()
+            if self._start_time == 0:
+                self._start_time = time.time()
         self._write(sendStr)
 
     def shutdown(self) -> None:
