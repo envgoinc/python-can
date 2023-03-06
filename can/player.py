@@ -115,14 +115,20 @@ def main() -> None:
                         print(message)
                     bus.send(message)
                     if(test):
-                        recv_msg = bus.recv()
-                        if not((recv_msg.arbitration_id == message.arbitration_id) and
+                        recv_msg = bus.recv(2)
+                        if recv_msg is None:
+                            print(f"Didn't get message: {message}")
+                        elif not((recv_msg.arbitration_id == message.arbitration_id) and
                            (recv_msg.data == message.data)):
                             print("Messages don't match.")
                             print(f"sent:    {message}")
                             print(f"received:{recv_msg}")
                             errors += 1
-                    time.sleep(0.100)
+                        time.sleep(0.005)
+                    else:
+                        recv_msg = bus.recv(0.1)
+                        if recv_msg is not None:
+                            print(f"received {recv_msg.arbitration_id}")
 
             except KeyboardInterrupt:
                 pass
