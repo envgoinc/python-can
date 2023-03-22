@@ -108,11 +108,16 @@ def main() -> None:
 
             try:
                 errors = 0
+                # flush receive buffer
+                if test:
+                    while bus.recv(0.1) is not None:
+                        pass
                 for message in in_sync:
                     if message.is_error_frame and not error_frames:
                         continue
                     if verbosity >= 3:
                         print(message)
+
                     bus.send(message)
                     if(test):
                         recv_msg = bus.recv(2)
