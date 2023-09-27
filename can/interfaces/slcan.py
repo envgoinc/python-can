@@ -7,8 +7,9 @@ from typing import Any, Optional, Tuple
 import io
 import time
 import logging
+import traceback
 
-from can import BusABC, Message
+from can import BusABC, Message, BusError, BusState
 from ..exceptions import (
     CanInterfaceNotImplementedError,
     CanInitializationError,
@@ -119,6 +120,8 @@ class slcanBus(BusABC):
                 self.set_bitrate_reg(btr)
             self.open()
 
+        self._bitrate = bitrate
+
         super().__init__(
             channel, ttyBaudrate=115200, bitrate=None, rtscts=False, **kwargs
         )
@@ -198,45 +201,87 @@ class slcanBus(BusABC):
         remote = False
         extended = False
         data = None
+        isError = False
 
         string = self._read(timeout)
 
-        if not string:
-            pass
-        elif string[0] == "T":
-            # extended frame
-            canId = int(string[1:9], 16)
-            dlc = int(string[9])
-            extended = True
-            data = bytearray.fromhex(string[10 : 10 + dlc * 2])
-        elif string[0] == "t":
-            # normal frame
-            canId = int(string[1:4], 16)
-            dlc = int(string[4])
-            data = bytearray.fromhex(string[5 : 5 + dlc * 2])
-        elif string[0] == "r":
-            # remote frame
-            canId = int(string[1:4], 16)
-            dlc = int(string[4])
-            remote = True
-        elif string[0] == "R":
-            # remote extended frame
-            canId = int(string[1:9], 16)
-            dlc = int(string[9])
-            extended = True
-            remote = True
+        try:
+            if not string:
+                pass
+            elif string[0] == "T":
+                # extended frame
+                canId = int(string[1:9], 16)
+                dlc = int(string[9])
+                extended = True
+                data = bytearray.fromhex(string[10 : 10 + dlc * 2])
+            elif string[0] == "t":
+                # normal frame
+                canId = int(string[1:4], 16)
+                dlc = int(string[4])
+                data = bytearray.fromhex(string[5 : 5 + dlc * 2])
+            elif string[0] == "r":
+                # remote frame
+                canId = int(string[1:4], 16)
+                dlc = int(string[4])
+                remote = True
+            elif string[0] == "R":
+                # remote extended frame
+                canId = int(string[1:9], 16)
+                dlc = int(string[9])
+                extended = True
+                remote = True
+            # bus state information
+            elif string[0] == "s":
+                if string[1] == "a":
+                    busState = BusState.ACTIVE
+                elif string[1] == "p":
+                    busState = BusState.PASSIVE
+                elif string[1] == "w":
+                    busState = BusState.WARN
+                elif string[1] == "f":
+                    busState = BusState.ERROR
+                #receive_error_count = int(string[2:4])
+                #transmit_error_count = int(string[5:7])
+                self.state = busState
+            # errors on the bus
+            elif string[0] == "e":
+                isError = True;
+                dlc = 0
+                len = int(string[1])
+                for idx in range(2, 2+len):
+                    if string[idx] == "o":
+                        self.bus_error_encountered(BusError.OVERFLOW)
+                        canId = 2
+                    elif string[idx] == "s":
+                        self.bus_error_encountered(BusError.STUFF)
+                        canId = 3
+                    elif string[idx] == "a":
+                        self.bus_error_encountered(BusError.ACKNOWLEDGE)
+                        canId = 4
+                    elif string[idx] == "c":
+                        self.bus_error_encountered(BusError.CRC)
+                        canId = 5
+                    elif string[idx] == "f":
+                        self.bus_error_encountered(BusError.FORM)
+                        canId = 6
 
-        if canId is not None:
-            msg = Message(
-                arbitration_id=canId,
-                is_extended_id=extended,
-                timestamp=time.time(),  # Better than nothing...
-                is_remote_frame=remote,
-                dlc=dlc,
-                data=data,
-            )
-            return msg, False
-        return None, False
+            if canId is not None:
+                msg = Message(
+                    arbitration_id=canId,
+                    is_extended_id=extended,
+                    timestamp=time.time(),  # Better than nothing...
+                    is_remote_frame=remote,
+                    dlc=dlc,
+                    data=data,
+                    is_error_frame = isError,
+                )
+                return msg, False
+            return None, False
+        except Exception:
+            print(string)
+            traceback.print_exc()
+            return None, False
+
 
     def send(self, msg: Message, timeout: Optional[float] = None) -> None:
         if timeout != self.serialPortOrig.write_timeout:
@@ -252,6 +297,11 @@ class slcanBus(BusABC):
             else:
                 sendStr = f"t{msg.arbitration_id:03X}{msg.dlc:d}"
             sendStr += msg.data.hex().upper()
+            self._total_messages += 1
+            self._total_data += 6 + msg.dlc
+            self._end_time = time.time()
+            if self._start_time == 0:
+                self._start_time = time.time()
         self._write(sendStr)
 
     def shutdown(self) -> None:

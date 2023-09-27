@@ -193,7 +193,7 @@ def main() -> None:
         action="store_true",
     )
     state_group.add_argument(
-        "--passive", help="Start the bus as passive.", action="store_true"
+        "--listen-only", help="Start bus in listen only mode.", action="store_true"
     )
 
     # print help message when no arguments were given
@@ -204,11 +204,6 @@ def main() -> None:
     results, unknown_args = parser.parse_known_args()
     additional_config = _parse_additional_config([*results.extra_args, *unknown_args])
     bus = _create_bus(results, can_filters=_parse_filters(results), **additional_config)
-
-    if results.active:
-        bus.state = BusState.ACTIVE
-    elif results.passive:
-        bus.state = BusState.PASSIVE
 
     print(f"Connected to {bus.__class__.__name__}: {bus.channel_info}")
     print(f"Can Logger (Started on {datetime.now()})")
@@ -229,13 +224,22 @@ def main() -> None:
         )
 
     try:
+        bus_state = bus.state
+        print(f"Bus State: {bus_state}")
         while True:
+            if bus_state != bus.state:
+                print(f"*********Bus State Changed: {bus_state}**************")
+                bus_state = bus.state
             msg = bus.recv(1)
             if msg is not None:
                 logger(msg)
     except KeyboardInterrupt:
         pass
     finally:
+        num_errors, error = bus.bus_error_check()
+        bus_utilization_percentage = bus.total_data * 100 / (bus._bitrate / 8 * bus.get_uptime())
+        print(f"Total messages: {bus.total_messages}, Total errors: {num_errors} ({bus.get_error_percentage():.2f}%)")
+        print(f"Bus usage = {bus_utilization_percentage:.2f}%")
         bus.shutdown()
         logger.stop()
 

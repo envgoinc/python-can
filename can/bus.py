@@ -18,11 +18,21 @@ from can.message import Message
 
 LOG = logging.getLogger(__name__)
 
+class BusError(Enum):
+    """The type of errors that can happen on a bus."""
+    ACKNOWLEDGE = auto()
+    BIT = auto()
+    CRC = auto()
+    FORM = auto()
+    OVERFLOW = auto()
+    STUFF = auto()
+
 
 class BusState(Enum):
     """The state in which a :class:`can.BusABC` can be."""
 
     ACTIVE = auto()
+    WARN = auto()
     PASSIVE = auto()
     ERROR = auto()
 
@@ -73,6 +83,13 @@ class BusABC(metaclass=ABCMeta):
         """
         self._periodic_tasks: List[_SelfRemovingCyclicTask] = []
         self.set_filters(can_filters)
+        self._error_count = 0
+        self._total_messages = 0
+        self._total_data = 0
+        self._start_time = 0
+        self._end_time = 0
+        self._bus_error = None
+        self._state = BusState.ACTIVE
 
     def __str__(self) -> str:
         return self.channel_info
@@ -96,6 +113,13 @@ class BusABC(metaclass=ABCMeta):
 
             # try to get a message
             msg, already_filtered = self._recv_internal(timeout=time_left)
+
+            if msg and not msg.is_error_frame:
+                self._total_messages += 1
+                self._total_data += 6 + msg.dlc
+                self._end_time = msg.timestamp
+                if self._start_time == 0:
+                    self._start_time = msg.timestamp
 
             # return it, if it matches
             if msg and (already_filtered or self._matches_filters(msg)):
@@ -415,12 +439,40 @@ class BusABC(metaclass=ABCMeta):
     def flush_tx_buffer(self) -> None:
         """Discard every message that may be queued in the output buffer(s)."""
 
+    def bus_error_encountered(self, error: BusError) -> None:
+        self._bus_error = error
+        self._error_count += 1
+
+    def bus_error_check(self) -> Tuple[int, BusError]:
+        error = self._bus_error
+        if(self._bus_error) is not None:
+            self._bus_error = None
+        return (self._error_count, error)
+
+    def get_uptime(self) -> float:
+        """Returns how long from the time received its first message until its last message in microseconds"""
+        return self._end_time - self._start_time
+
+    def get_error_percentage(self) -> float:
+        """Returns errors as a percentage of messages received"""
+        if self._total_messages == 0:
+            error_percentage = 0
+        else:
+            error_percentage = self._error_count * 100 / self._total_messages
+        return error_percentage
+
     def shutdown(self) -> None:
         """
         Called to carry out any interface specific cleanup required
         in shutting down a bus.
         """
         self.stop_all_periodic_tasks()
+        self._total_messages = 0
+        self._total_data = 0
+        self._start_time = 0
+        self._end_time = 0
+        self._error_count = 0
+        self._bus_error = None
 
     def __enter__(self):
         return self
@@ -433,14 +485,28 @@ class BusABC(metaclass=ABCMeta):
         """
         Return the current state of the hardware
         """
-        return BusState.ACTIVE
+        return self._state
 
     @state.setter
     def state(self, new_state: BusState) -> None:
         """
         Set the new state of the hardware
         """
-        raise NotImplementedError("Property is not implemented.")
+        self._state = new_state
+
+    @property
+    def total_messages(self) -> int:
+        """
+        Return the total messages bus has seen
+        """
+        return self._total_messages
+
+    @property
+    def total_data(self) -> int:
+        """
+        Return the total data bus has seen (in types)
+        """
+        return self._total_data
 
     @staticmethod
     def _detect_available_configs() -> List[can.typechecking.AutoDetectedConfig]:
