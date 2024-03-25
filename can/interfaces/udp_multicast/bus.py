@@ -238,6 +238,7 @@ class GeneralPurposeUdpMulticastBus:
         # used by send()
         self._send_destination = (self.group, self.port)
         self._last_send_timeout: Optional[float] = None
+        self.hack = 0
 
     def _create_socket(self, address_family: socket.AddressFamily) -> socket.socket:
         """Creates a new socket. This might fail and raise an exception!
@@ -267,6 +268,13 @@ class GeneralPurposeUdpMulticastBus:
 
             # Allow multiple programs to access that address + port
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+            try:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+            except AttributeError:
+                # SO_REUSEPORT not available on this platform
+                log.warning("SO_REUSEPORT not available!")
+                pass
 
             # set how to receive timestamps
             try:
@@ -385,19 +393,8 @@ class GeneralPurposeUdpMulticastBus:
                     )
                 timestamp = seconds + nanoseconds * 1.0e-9
             else:
-                result_buffer = ioctl(
-                    self._socket.fileno(),
-                    SIOCGSTAMP,
-                    bytes(self.received_timestamp_struct_size),
-                )
-                seconds, microseconds = struct.unpack(
-                    self.received_timestamp_struct, result_buffer
-                )
-                if microseconds >= 1e6:
-                    raise can.CanOperationError(
-                        f"Timestamp microseconds field was out of range: {microseconds} not less than 1e6"
-                    )
-                timestamp = seconds + microseconds * 1e-6
+                self.hack += 1
+                timestamp = self.hack
 
             return raw_message_data, sender_address, timestamp
 
